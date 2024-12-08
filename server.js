@@ -11,14 +11,16 @@ the course.
 Name:   Omar Carrasco   
 Student ID:   156333221
 Date:  07/12/2024
-Cyclic Web App URL:  
-GitHub Repository URL:  
+Cyclic Web App URL:  NOT WORKING
+GitHub Repository URL:  https://github.com/ocarrascoo/WEB322_assigments
 
 ********************************************************************************/
 
 const express = require("express");
 const itemData = require("./store-service");
 const path = require("path");
+const authData = require('./auth-service');
+
 
 // 3 new modules, multer, cloudinary, streamifier
 const multer = require("multer");
@@ -28,6 +30,14 @@ const streamifier = require("streamifier");
 // AS4, Setup handlebars
 const exphbs = require("express-handlebars");
 const { Console } = require("console");
+
+
+// Require the "client-sessions" module
+const clientSessions = require("client-sessions");
+
+
+
+
 
 // Configure Cloudinary. This API information is
 // inside of the Cloudinary Dashboard - https://console.cloudinary.com/
@@ -44,12 +54,37 @@ const upload = multer(); // no { storage: storage }
 // const upload = multer({ dest: 'uploads/' })
 
 const app = express();
+authData.initialize();
+
 
 const HTTP_PORT = process.env.PORT || 8080;
 
 app.use(express.static("public"));
 
 app.use(express.urlencoded({ extended: true }));
+
+
+
+// Configure client-sessions middleware
+app.use(
+  clientSessions({
+    cookieName: "session",
+    secret: "firda",
+    duration: 24 * 60 * 60 * 1000, 
+    activeDuration: 30 * 60 * 1000, 
+  })
+);
+
+
+// Middleware to ensure user is logged in
+function ensureLogin(req, res, next) {
+  if (!req.session.user) {
+    res.redirect("/login");
+  } else {
+    next();
+  }
+}
+
 
 
 //This will add the property "activeRoute" to "app.locals" whenever the route changes, i.e. if our route is "/store/5", the app.locals.activeRoute value will be "/store".  Also, if the shop is currently viewing a category, that category will be set in "app.locals".
@@ -157,7 +192,7 @@ app.get("/shop", async (req, res) => {
 });
 
 // Accept queryStrings
-app.get("/items", (req, res) => {
+app.get("/items",ensureLogin, (req, res) => {
   let queryPromise = null;
 
   if (req.query.category) {
@@ -183,7 +218,7 @@ app.get("/items", (req, res) => {
 
 
 // A route for items/add
-app.get('/items/add', (req, res) => {
+app.get('/items/add',ensureLogin, (req, res) => {
   itemData.getCategories()
     .then(categories => {
       // Render the addItem view with categories data
@@ -196,7 +231,7 @@ app.get('/items/add', (req, res) => {
     });
 });
 
-app.post("/items/add", upload.single("featureImage"), (req, res) => {
+app.post("/items/add",ensureLogin, upload.single("featureImage"), (req, res) => {
   try {
     if (req.file) {
       let streamUpload = (req) => {
@@ -247,7 +282,7 @@ app.post("/items/add", upload.single("featureImage"), (req, res) => {
 });
 
 // Get an individual item
-app.get("/item/:id", (req, res) => {
+app.get("/item/:id",ensureLogin, (req, res) => {
   itemData
     .getItemById(req.params.id)
     .then((data) => {
@@ -258,7 +293,7 @@ app.get("/item/:id", (req, res) => {
     });
 });
 
-app.get("/items/delete/:id", (req, res) => {
+app.get("/items/delete/:id",ensureLogin, (req, res) => {
   itemData
       .deleteItemById(req.params.id)
       .then(() => {
@@ -271,7 +306,7 @@ app.get("/items/delete/:id", (req, res) => {
 
 
 
-app.get("/categories", (req, res) => {
+app.get("/categories",ensureLogin, (req, res) => {
   itemData
     .getCategories()
     .then((data) => {
@@ -290,12 +325,12 @@ app.get("/categories", (req, res) => {
 });
 
 // Render form for adding a category
-app.get("/categories/add", (req, res) => {
+app.get("/categories/add",ensureLogin, (req, res) => {
   res.render("addCategory");
 });
 
 // Handle the POST request for adding a category
-app.post("/categories/add", (req, res) => {
+app.post("/categories/add",ensureLogin, (req, res) => {
   itemData
     .addCategory(req.body)
     .then(() => {
@@ -306,7 +341,7 @@ app.post("/categories/add", (req, res) => {
     });
 });
 
-app.get("/categories/delete/:id", (req, res) => {
+app.get("/categories/delete/:id", ensureLogin, (req, res) => {
   itemData
     .deleteCategoryById(req.params.id)
     .then(() => {
@@ -368,9 +403,74 @@ app.get('/shop/:id', async (req, res) => {
   res.render("shop", {data: viewData})
 });
 
+// GET /login - renders the login view
+app.get("/login", (req, res) => {
+  res.render("login");
+});
+
+// GET /register - renders the register view
+app.get("/register", (req, res) => {
+  res.render("register");
+});
+
+// POST /register - handles user registration
+app.post("/register", (req, res) => {
+  const userData = req.body;
+
+  // Add the user's user-agent to the request data
+  userData.userAgent = req.get("User-Agent");
+
+  authData.registerUser(userData)
+    .then(() => {
+      res.render("register", { successMessage: "User created" });
+    })
+    .catch((err) => {
+      res.render("register", { errorMessage: err, userName: userData.userName });
+    });
+});
+
+// POST /login - handles user login
+app.post("/login", (req, res) => {
+  // Set the user's user-agent
+  req.body.userAgent = req.get("User-Agent");
+
+  authData.checkUser(req.body)
+    .then((user) => {
+      console.log("userFound");
+      
+      // Store user information in the session
+      req.session.user = {
+        userName: user.userName,
+        email: user.email,
+        loginHistory: user.loginHistory,
+      };
+
+      // Redirect to the items page upon successful login
+      res.redirect("/items");
+    })
+    .catch((err) => {
+      res.render("login", { errorMessage: err, userName: req.body.userName });
+    });
+});
+
+// GET /logout - clears the session and redirects to the homepage
+app.get("/logout", (req, res) => {
+  req.session.reset();
+  res.redirect("/");
+});
+
+// GET /userHistory - renders the user history view (protected by middleware)
+app.get("/userHistory", ensureLogin, (req, res) => {
+  res.render("userHistory");
+});
+
+
 app.use((req, res) => {
   res.status(404).render("404");
 })
+
+
+
 
 itemData
   .initialize()

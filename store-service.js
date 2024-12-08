@@ -11,8 +11,8 @@ the course.
 Name:   Omar Carrasco   
 Student ID:   156333221
 Date:  07/12/2024
-Cyclic Web App URL:  
-GitHub Repository URL:  
+Cyclic Web App URL: NOT WORKING  
+GitHub Repository URL:  https://github.com/ocarrascoo/WEB322_assigments
 
 ********************************************************************************/
 const Sequelize = require('sequelize');
